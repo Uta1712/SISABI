@@ -1,45 +1,45 @@
-# SISABI — Sistem Assessment Rehabilitasi Lapas Kelas III Batulicin
+# SISABI — GitHub Pages Edition
 
-SISABI adalah aplikasi assessment rehabilitasi untuk Lapas Kelas III Batulicin.
+Frontend SISABI untuk GitHub Pages dengan backend tetap menggunakan Google Apps Script dan Google Spreadsheet SISABI yang sudah berjalan.
 
-## Modul
-- Dashboard
-- Skrining P1–P8
-- WHOQOL
-- URICA
-- Profil peserta
-- Riwayat assessment
-- Login/role Petugas dan Admin
-- Viewer tanpa login
+## Arsitektur
 
-## Struktur repository
+GitHub Pages → Google Apps Script Web App `/exec` → Google Spreadsheet
 
-```text
-SISABI/
-├── index.html
-├── README.md
-└── apps-script/
-    └── README.md
-```
+Frontend tidak lagi memakai `google.script.run`. Komunikasi server menggunakan endpoint HTTP `doPost(e)` Apps Script.
 
-## Penting: GitHub Pages vs Google Apps Script
+## Sebelum dipublikasikan
 
-File `index.html` ini adalah **versi produksi SISABI yang digunakan di Google Apps Script**.
+1. Buka project Apps Script produksi SISABI.
+2. Tambahkan fungsi `doPost(e)` dari:
+   `apps-script/GitHub_API_Patch.gs`
+3. Simpan.
+4. Deploy → Manage deployments → Edit → **New version** → Deploy.
+5. Pastikan Web App memakai URL produksi `/exec` yang sama dengan URL di `index.html`.
+6. Upload `index.html` ke repository GitHub.
+7. Aktifkan GitHub Pages dari branch/folder repository tersebut.
 
-Backend SISABI menggunakan Google Apps Script melalui `google.script.run`. Karena itu:
+## Backend yang digunakan
 
-- Repository GitHub dapat digunakan sebagai tempat menyimpan/versioning source code.
-- `index.html` dapat dibuka sebagai source HTML.
-- Jika `index.html` dipasang langsung sebagai GitHub Pages, fungsi yang membutuhkan backend Google Apps Script (login server, penyimpanan assessment, data server, profil peserta, dan dashboard server) **tidak akan berjalan seperti pada Web App Google Apps Script**.
+Patch memanggil fungsi backend yang sudah ada:
+- `loginSISABI`
+- `logoutSISABI`
+- `submitAssessment`
+- `getDashboardStats`
+- `getAssessmentList`
+- `getParticipantRecords`
+- `clearAssessmentDataServer`
+- `getSessionInfo`
 
-Untuk penggunaan operasional SISABI saat ini, gunakan Web App Google Apps Script yang sudah berhasil diuji.
+## Keamanan
 
-## Versi
+- Password tidak ditaruh di `index.html`.
+- Password dikirim hanya melalui HTTPS ke endpoint Apps Script.
+- Session token berasal dari backend dan disimpan sementara di `sessionStorage` untuk UI.
+- Validasi hak akses tetap dilakukan server-side oleh fungsi backend existing.
+- Data assessment tetap masuk ke Google Spreadsheet.
+- Jangan commit credential, token, atau data peserta ke GitHub.
 
-Baseline: **SISABI v1.2 Production**
+## Penting
 
-## Catatan keamanan
-
-- Jangan menyimpan username/password produksi di repository.
-- Jangan commit credential, token, atau data peserta.
-- Data peserta/assessment sebaiknya tetap berada di Google Spreadsheet/Apps Script dan tidak dimasukkan ke GitHub.
+GitHub Pages hanya menjadi frontend. Database dan autentikasi produksi tetap berada di Google Apps Script/Spreadsheet.

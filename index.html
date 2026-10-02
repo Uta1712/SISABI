@@ -459,30 +459,34 @@ function getSession(){
 }
 function setSession(u){sisabiSession=u;try{sessionStorage.setItem('sisabiSession',JSON.stringify(u));}catch(e){}}
 function clearSession(){sisabiSession=null;try{sessionStorage.removeItem('sisabiSession');}catch(e){}}
-function serverAvailable(){return typeof google!=='undefined'&&google.script&&google.script.run;}
+const APPS_SCRIPT_URL='https://script.google.com/macros/s/AKfycbzbBLWKVPQekb6QLsiQ14gb0i41CLDKv_1KwBqvur765rRVUNvPJjpVpC_LjMfGN_Y1/exec';
+function serverAvailable(){return !!APPS_SCRIPT_URL;}
+async function apiCall(action,payload={}){
+  const body=JSON.stringify(Object.assign({action:action},payload));
+  const response=await fetch(APPS_SCRIPT_URL,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain;charset=utf-8'},body:body});
+  const text=await response.text();
+  let result;
+  try{result=JSON.parse(text);}catch(err){throw new Error('Respons server tidak valid. Pastikan Web App Apps Script sudah diperbarui untuk API GitHub.');}
+  return result;
+}
 function handleLogin(e){
   e.preventDefault();
-  if(!serverAvailable()){
-    document.getElementById('loginError').textContent='SISABI harus dibuka dari Web App produksi.';
-    return false;
-  }
   const username=document.getElementById('loginUsername').value.trim().toLowerCase();
   const password=document.getElementById('loginPassword').value;
   const btn=document.querySelector('#loginForm .login-btn');
   if(btn){btn.disabled=true;btn.textContent='Memverifikasi…';}
-  google.script.run
-    .withSuccessHandler(function(res){
+  apiCall('loginSISABI',{username:username,password:password})
+    .then(function(res){
       if(btn){btn.disabled=false;btn.textContent='Masuk ke Sistem →';}
       if(!res||!res.ok){document.getElementById('loginError').textContent=(res&&res.message)||'Username atau password tidak sesuai.';return;}
       setSession(res.session);
       document.getElementById('loginError').textContent='';
       applyAuth();
     })
-    .withFailureHandler(function(err){
+    .catch(function(err){
       if(btn){btn.disabled=false;btn.textContent='Masuk ke Sistem →';}
       document.getElementById('loginError').textContent=err&&err.message?err.message:'Gagal menghubungi server.';
-    })
-    .loginSISABI(username,password);
+    });
   return false;
 }
 function openStaffLogin(){
@@ -502,7 +506,7 @@ function logoutSISABI(){
   const finish=function(){clearSession();location.reload()};
   if(!token){finish();return;}
   if(!confirm('Keluar dari SISABI?'))return;
-  if(serverAvailable()) google.script.run.withSuccessHandler(finish).withFailureHandler(finish).logoutSISABI(token); else finish();
+  apiCall('logoutSISABI',{token:token}).then(finish).catch(finish);
 }
 function applyAuth(){
   const loginLogo=document.getElementById('loginLogo'); const sourceLogo=document.querySelector('.sisabi-logo'); if(loginLogo&&sourceLogo&&sourceLogo.src)loginLogo.src=sourceLogo.src;
@@ -532,25 +536,21 @@ function requireRole(action){
   if(!sisabiSession||sisabiSession.role==='viewer'){showToast('Silakan login sebagai Petugas/Admin untuk '+action+'.');openStaffLogin();return false;}
   return true;
 }
-const APPS_SCRIPT_URL='';
 function closeSide(){side.classList.remove('open');overlay.classList.remove('show')}function toggleSide(){side.classList.toggle('open');overlay.classList.toggle('show')}function go(id){const btn=[...document.querySelectorAll('nav button')].find(x=>(x.getAttribute('onclick')||'').includes("page('"+id));page(id,btn)}function page(id,b){if(!canAccess(id)){showToast('Akses '+id+' tidak tersedia untuk role '+(sisabiSession?.role||'-')+'.');return}document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));if(b)b.classList.add('active');closeSide();window.scrollTo({top:0,behavior:'smooth'});if(id==='data')loadData();if(id==='peserta'){renderParticipants();clearParticipantDetail();}}
 const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());const tglEl=document.getElementById('screenDate');if(tglEl)tglEl.value=d.toISOString().slice(0,10);
-function kirimKeSpreadsheet(form, jenis, selesai){
+async function kirimKeSpreadsheet(form, jenis, selesai){
   if(!requireRole('mengirim assessment'))return;
-  if(!serverAvailable()){showToast('SISABI harus dibuka dari Web App produksi.');return;}
   const data={};
   new FormData(form).forEach((value,key)=>{if(!key.startsWith('_'))data[key]=String(value);});
-  google.script.run
-    .withSuccessHandler(function(res){
-      if(res&&res.ok){
-        cacheAssessmentRecord(form,jenis,data);
-        if(selesai)selesai();
-      } else {
-        showToast((res&&res.message)||'Data gagal disimpan.');
-      }
-    })
-    .withFailureHandler(function(err){showToast(err&&err.message?err.message:'Data gagal disimpan ke server.');})
-    .submitAssessment(sisabiSession.token,jenis,data);
+  try{
+    const res=await apiCall('submitAssessment',{token:sisabiSession.token,jenis:jenis,data:data});
+    if(res&&res.ok){
+      cacheAssessmentRecord(form,jenis,data);
+      if(selesai)selesai();
+    }else{
+      showToast((res&&res.message)||'Data gagal disimpan.');
+    }
+  }catch(err){showToast(err&&err.message?err.message:'Data gagal disimpan ke server.');}
 }
 function cacheAssessmentRecord(form,jenis,obj){
   let a=[];try{a=JSON.parse(localStorage.getItem('assessmentRecords')||'[]');if(!Array.isArray(a))a=[];}catch(e){a=[];}
@@ -595,7 +595,7 @@ function getAssessmentRecords(){
 }
 function updateDashboardStorage(){
   if(serverAvailable()){
-    google.script.run.withSuccessHandler(function(stats){
+    apiCall('getDashboardStats',{token:sisabiSession.token}).then(function(stats){
       if(!stats||!stats.ok)return;
       const set=(id,val)=>{const el=document.getElementById(id);if(el)el.textContent=String(val);};
       set('statTotal',stats.total);set('statSkrining',stats.skrining);set('statWhoqol',stats.whoqol);set('statUrica',stats.urica);set('statToday',stats.today);set('statMonth',stats.month);
@@ -603,7 +603,7 @@ function updateDashboardStorage(){
       const latestEl=document.getElementById('statLatest'),latestSub=document.getElementById('statLatestSub');
       if(stats.latest){if(latestEl)latestEl.textContent=stats.latest.form;if(latestSub)latestSub.textContent=stats.latest.time;}else{if(latestEl)latestEl.textContent='—';if(latestSub)latestSub.textContent='Belum ada assessment';}
       renderServerChart(stats.last7Days||[]);renderServerRecent(stats.recent||[]);
-    }).withFailureHandler(function(){renderLocalDashboardFallback();}).getDashboardStats();
+    }).catch(function(){renderLocalDashboardFallback();});
   } else renderLocalDashboardFallback();
 }
 function renderLocalDashboardFallback(){
@@ -641,9 +641,11 @@ function notifyAssessmentChange(){
 }
 function clearAssessmentData(){
   if(sisabiSession?.role!=='admin'){showToast('Hanya Admin yang dapat menghapus data assessment.');return;}
-  if(!serverAvailable()){showToast('Buka SISABI melalui Web App produksi.');return;}
   if(!confirm('Hapus seluruh data assessment dari server? Tindakan ini tidak dapat dibatalkan.'))return;
-  google.script.run.withSuccessHandler(function(res){if(res&&res.ok){localStorage.removeItem('assessmentRecords');serverParticipantRecords=[];notifyAssessmentChange();loadData();showToast('Seluruh data assessment server telah dihapus.');}else showToast(res?.message||'Gagal menghapus data.');}).withFailureHandler(function(err){showToast(err?.message||'Gagal menghapus data server.');}).clearAssessmentDataServer(sisabiSession.token);
+  apiCall('clearAssessmentDataServer',{token:sisabiSession.token}).then(function(res){
+    if(res&&res.ok){localStorage.removeItem('assessmentRecords');serverParticipantRecords=[];notifyAssessmentChange();loadData();showToast('Seluruh data assessment server telah dihapus.');}
+    else showToast(res?.message||'Gagal menghapus data.');
+  }).catch(function(err){showToast(err?.message||'Gagal menghapus data server.');});
 }
 
 window.addEventListener('storage',function(e){if(e.key==='assessmentRecords')notifyAssessmentChange();});
@@ -651,12 +653,12 @@ window.addEventListener('sisabi:storage-updated',updateDashboardStorage);
 function loadData(){
   const dbEl=document.getElementById('db');if(!dbEl)return;
   if(!requireRole('melihat data assessment')){dbEl.innerHTML='<div class="notice">Login Petugas/Admin diperlukan untuk melihat data peserta.</div>';return;}
-  if(!serverAvailable()){dbEl.innerHTML='<div class="notice">Buka SISABI melalui Web App produksi.</div>';return;}
   dbEl.innerHTML='<div class="notice">Memuat data assessment dari server…</div>';
-  google.script.run.withSuccessHandler(function(res){
+  apiCall('getAssessmentList',{token:sisabiSession.token}).then(function(res){
     if(!res||!res.ok){dbEl.innerHTML='<div class="notice">'+escapeHtml(res?.message||'Gagal memuat data.')+'</div>';return;}
-    const rows=res.rows||[];dbEl.innerHTML=rows.length?'<table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left">Waktu</th><th style="text-align:left">Form</th><th style="text-align:left">Nama</th><th style="text-align:left">Blok/Kamar</th></tr>'+rows.map(x=>'<tr><td>'+escapeHtml(x.time)+'</td><td>'+escapeHtml(x.form)+'</td><td>'+escapeHtml(x.name)+'</td><td>'+escapeHtml(x.blok)+'</td></tr>').join('')+'</table>':'Belum ada data assessment di server.';
-  }).withFailureHandler(function(err){dbEl.innerHTML='<div class="notice">'+escapeHtml(err?.message||'Gagal memuat data server.')+'</div>';}).getAssessmentList(sisabiSession.token);
+    const rows=res.rows||[];
+    dbEl.innerHTML=rows.length?'<table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left">Waktu</th><th style="text-align:left">Form</th><th style="text-align:left">Nama</th><th style="text-align:left">Blok/Kamar</th></tr>'+rows.map(x=>'<tr><td>'+escapeHtml(x.time)+'</td><td>'+escapeHtml(x.form)+'</td><td>'+escapeHtml(x.name)+'</td><td>'+escapeHtml(x.blok)+'</td></tr>').join('')+'</table>':'Belum ada data assessment di server.';
+  }).catch(function(err){dbEl.innerHTML='<div class="notice">'+escapeHtml(err?.message||'Gagal memuat data server.')+'</div>';});
 }
 
 /* ===== PROFIL PESERTA / RIWAYAT ===== */
@@ -682,13 +684,12 @@ function esc(v){return String(v??'').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&l
 function renderParticipants(){
   const wrap=document.getElementById('participantResults');if(!wrap)return;
   if(!requireRole('melihat profil peserta'))return;
-  if(!serverAvailable()){wrap.innerHTML='<div class="empty-participants">Buka SISABI melalui Web App produksi.</div>';return;}
   wrap.innerHTML='<div class="notice">Memuat profil peserta dari server…</div>';
-  google.script.run.withSuccessHandler(function(res){
+  apiCall('getParticipantRecords',{token:sisabiSession.token}).then(function(res){
     if(!res||!res.ok){wrap.innerHTML='<div class="empty-participants">'+esc(res?.message||'Gagal memuat profil peserta.')+'</div>';return;}
     serverParticipantRecords=Array.isArray(res.records)?res.records:[];
     renderParticipantResults();
-  }).withFailureHandler(function(err){wrap.innerHTML='<div class="empty-participants">'+esc(err?.message||'Gagal memuat data peserta.')+'</div>';}).getParticipantRecords(sisabiSession.token);
+  }).catch(function(err){wrap.innerHTML='<div class="empty-participants">'+esc(err?.message||'Gagal memuat data peserta.')+'</div>';});
 }
 function renderParticipantResults(){
   const wrap=document.getElementById('participantResults');if(!wrap)return;

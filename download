@@ -1,7 +1,0 @@
-.DS_Store
-Thumbs.db
-*.log
-.env
-.env.*
-credentials.json
-service-account*.json
